@@ -34,7 +34,7 @@ export default function Home() {
       if (result.success) alert('Data submitted to DataWell!');
       else alert('Failed to submit.');
     } catch (err) {
-      console.error(err);
+      console.error('Error submitting data:', err);
       alert('Network or server error.');
     }
   };
@@ -49,6 +49,7 @@ export default function Home() {
       if (result.success) setSummary(result.summary);
       else setSummary('Failed to summarize.');
     } catch (err) {
+      console.error('Error summarizing data:', err);
       setSummary('Network or server error.');
     }
     setLoading(false);
