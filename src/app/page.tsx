@@ -33,7 +33,7 @@ export default function Home() {
       const result = await res.json();
       if (result.success) alert('Data submitted to DataWell!');
       else alert('Failed to submit.');
-    } catch (err) {
+    } catch (err: unknown) {
       console.error('Error submitting data:', err);
       alert('Network or server error.');
     }
@@ -48,7 +48,7 @@ export default function Home() {
       const result = await res.json();
       if (result.success) setSummary(result.summary);
       else setSummary('Failed to summarize.');
-    } catch (err) {
+    } catch (err: unknown) {
       console.error('Error summarizing data:', err);
       setSummary('Network or server error.');
     }
