@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { users } from '@drizzle/schema';
 
 export async function POST(request: Request) {
   try {
@@ -126,7 +125,27 @@ SQL Query:`;
 }
 
 // Helper function to format query results with clean, simple format
-function formatQueryResult(rows: any[], originalQuery: string): string {
+type QueryRow = {
+  count?: number;
+  avg?: number;
+  sum?: number;
+  max?: number;
+  min?: number;
+  age?: number;
+  gender?: string;
+  height?: number;
+  weight?: number;
+  city?: string;
+  country?: string;
+  zip?: string;
+  occupation?: string;
+  education?: string;
+  smoking?: string;
+  drinks_per_week?: number;
+  [key: string]: unknown;
+};
+
+function formatQueryResult(rows: QueryRow[], originalQuery: string): string {
   if (rows.length === 0) return 'No data found.';
   
   // If it's a count query
