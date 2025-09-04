@@ -1,5 +1,6 @@
 'use client';
 
+import ChatWidget from '@/components/ChatWidget';
 import { useState } from 'react';
 
 export default function Home() {
@@ -132,6 +133,8 @@ export default function Home() {
           <pre className="whitespace-pre-wrap">{summary}</pre>
         </div>
       )}
+            {/* Add Chat Widget */}
+            <ChatWidget />
     </div>
   );
 }
