@@ -1,6 +1,6 @@
 'use client';
 
-import ChatWidget from '@/components/ChatWidget';
+import ChatWidget from '../components/ChatWidget';
 import { useState } from 'react';
 
 export default function Home() {
