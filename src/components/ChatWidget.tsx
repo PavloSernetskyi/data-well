@@ -37,7 +37,6 @@ export default function ChatWidget() {
     setIsLoading(true);
 
     try {
-      // TODO: Replace with actual API call in Step 3
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -54,7 +53,7 @@ export default function ChatWidget() {
       };
 
       setMessages(prev => [...prev, botMessage]);
-    } catch (error) {
+    } catch {
       const errorMessage: Message = {
         id: (Date.now() + 1).toString(),
         text: 'Sorry, I encountered an error. Please try again.',
@@ -79,7 +78,7 @@ export default function ChatWidget() {
       {/* Floating Chat Button */}
       <button
         onClick={() => setIsOpen(true)}
-        className="fixed bottom-6 right-6 bg-blue-500 hover:bg-blue-600 text-white rounded-full p-4 shadow-lg hover:shadow-xl transition-all duration-200 z-50"
+        className="fixed bottom-6 right-6 bg-teal-500 hover:bg-teal-600 text-white rounded-full p-4 shadow-lg hover:shadow-xl transition-all duration-200 z-50"
         aria-label="Open chat"
       >
         <svg
@@ -102,7 +101,7 @@ export default function ChatWidget() {
       {isOpen && (
         <div className="fixed bottom-6 right-6 w-96 h-96 bg-white rounded-lg shadow-xl z-50 flex flex-col">
           {/* Chat Header */}
-          <div className="bg-blue-500 text-white p-4 rounded-t-lg flex justify-between items-center">
+          <div className="bg-teal-500 text-white p-4 rounded-t-lg flex justify-between items-center">
             <h3 className="font-semibold">DataWell Chat Assistant</h3>
             <button
               onClick={() => setIsOpen(false)}
@@ -125,7 +124,7 @@ export default function ChatWidget() {
                 <div
                   className={`max-w-xs px-4 py-2 rounded-lg ${
                     message.isUser
-                      ? 'bg-blue-500 text-white'
+                      ? 'bg-teal-500 text-white'
                       : 'bg-gray-100 text-gray-800'
                   }`}
                 >
@@ -158,13 +157,13 @@ export default function ChatWidget() {
                 onChange={(e) => setInputText(e.target.value)}
                 onKeyPress={handleKeyPress}
                 placeholder="Ask about the data..."
-                className="flex-1 border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 placeholder-gray-500"
+                className="flex-1 border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-teal-500 text-gray-900 placeholder-gray-500"
                 disabled={isLoading}
               />
               <button
                 onClick={handleSendMessage}
                 disabled={!inputText.trim() || isLoading}
-                className="bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 text-white px-4 py-2 rounded-lg transition-colors"
+                className="bg-teal-500 hover:bg-teal-600 disabled:bg-gray-300 text-white px-4 py-2 rounded-lg transition-colors"
               >
                 Send
               </button>
