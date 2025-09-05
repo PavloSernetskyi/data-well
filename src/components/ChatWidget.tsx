@@ -14,7 +14,7 @@ export default function ChatWidget() {
   const [messages, setMessages] = useState<Message[]>([
     {
       id: '1',
-      text: "👋 Hi! I'm your DataWell assistant. Ask me anything about the data, like:\n\n• \"Show me all female users under 25\"\n• \"What's the average weight in California?\"\n• \"How many users drink more than 5 drinks per week?\"",
+      text: "👋 Hi! I'm your DataWell assistant. Ask me anything about the data, like:\n\n• \"Show me all users under 25\"\n• \"What's the average weight in California?\"\n• \"How many users drink more than 3 drinks per week?\"",
       isUser: false,
       timestamp: new Date()
     }
