@@ -11,7 +11,17 @@ export async function GET() {
       .orderBy(desc(users.id))
       .limit(10);
 
-    const prompt = `Summarize and provide insights for the following user data:\n${JSON.stringify(recentUsers, null, 2)}`;
+    const prompt = `Please provide a comprehensive summary and analysis of the following user data. Structure your response with clear sections and ensure you complete all thoughts. Include:
+
+1. **Summary and Insights** - Key demographic and lifestyle findings
+2. **Geographic Insights** - Location-based patterns
+3. **Correlation Analysis** - Relationships between different variables
+4. **Key Takeaways** - Most important findings and conclusions
+
+User data:
+${JSON.stringify(recentUsers, null, 2)}
+
+Please ensure your response is complete and ends with a proper conclusion.`;
 
     const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
@@ -22,7 +32,8 @@ export async function GET() {
       body: JSON.stringify({
         model: 'llama-3.1-8b-instant',
         messages: [{ role: 'user', content: prompt }],
-        max_tokens: 256,
+        max_tokens: 1024,
+        temperature: 0.3,
       }),
     });
 

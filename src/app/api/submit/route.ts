@@ -31,7 +31,17 @@ export async function POST(req: Request) {
       .limit(5);
 
     // Prepare prompt for Groq
-    const prompt = `Summarize and provide insights for the following user data:\n${JSON.stringify(recentUsers, null, 2)}`;
+    const prompt = `Please provide a comprehensive summary and analysis of the following user data. Structure your response with clear sections and ensure you complete all thoughts. Include:
+
+1. **Summary and Insights** - Key demographic and lifestyle findings
+2. **Geographic Insights** - Location-based patterns
+3. **Correlation Analysis** - Relationships between different variables
+4. **Key Takeaways** - Most important findings and conclusions
+
+User data:
+${JSON.stringify(recentUsers, null, 2)}
+
+Please ensure your response is complete and ends with a proper conclusion.`;
 
     // Call Groq API
     const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
@@ -44,6 +54,7 @@ export async function POST(req: Request) {
         model: 'llama3-70b-8192',
         messages: [{ role: 'user', content: prompt }],
         max_tokens: 1024,
+        temperature: 0.3,
       }),
     });
 
