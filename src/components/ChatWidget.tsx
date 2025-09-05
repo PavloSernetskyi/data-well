@@ -148,22 +148,22 @@ export default function ChatWidget() {
             )}
           </div>
 
-          {/* Chat Input */}
+          {/* Chat Input - FIXED: Stacked layout for mobile */}
           <div className="p-3 sm:p-4 border-t">
-            <div className="flex space-x-2">
+            <div className="flex flex-col space-y-2 sm:space-y-0 sm:flex-row sm:space-x-2">
               <input
                 type="text"
                 value={inputText}
                 onChange={(e) => setInputText(e.target.value)}
                 onKeyPress={handleKeyPress}
                 placeholder="Ask about the data..."
-                className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm sm:text-base focus:outline-none focus:ring-2 focus:ring-teal-500 text-gray-900 placeholder-gray-500"
+                className="flex-1 border border-gray-300 rounded-lg px-3 py-3 sm:py-2 text-sm sm:text-base focus:outline-none focus:ring-2 focus:ring-teal-500 text-gray-900 placeholder-gray-500"
                 disabled={isLoading}
               />
               <button
                 onClick={handleSendMessage}
                 disabled={!inputText.trim() || isLoading}
-                className="bg-teal-500 hover:bg-teal-600 disabled:bg-gray-300 text-white px-3 sm:px-4 py-2 rounded-lg transition-colors text-sm sm:text-base"
+                className="bg-teal-500 hover:bg-teal-600 disabled:bg-gray-300 text-white px-6 py-3 sm:px-4 sm:py-2 rounded-lg transition-colors text-sm sm:text-base font-medium"
               >
                 Send
               </button>
