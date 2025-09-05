@@ -431,7 +431,7 @@ function validateSQLQuery(sqlQuery: string): { isValid: boolean; error?: string;
 }
 
 // ENHANCED: AI-powered smart error analysis
-async function getSmartErrorMessage(error: unknown, originalQuery: string, conversationHistory: any[]): Promise<string> {
+async function getSmartErrorMessage(error: unknown, originalQuery: string, conversationHistory: Array<{ role: string; content: string }>): Promise<string> {
   const errorString = (error as Error)?.message || String(error) || '';
   
   console.log('Analyzing error:', errorString);
@@ -446,7 +446,7 @@ ERROR DETAILS:
 - Available Schema: users (id, age, gender, height, weight, city, country, zip, occupation, education, smoking, drinks_per_week)
 
 CONVERSATION CONTEXT:
-${conversationHistory.length > 0 ? conversationHistory.map((msg: any) => `${msg.role}: ${msg.content}`).join('\n') : 'No previous context'}
+${conversationHistory.length > 0 ? conversationHistory.map((msg: { role: string; content: string }) => `${msg.role}: ${msg.content}`).join('\n') : 'No previous context'}
 
 ANALYZE AND PROVIDE:
 1. What went wrong (in simple terms)
@@ -493,11 +493,11 @@ Be helpful, educational, and encouraging. Use emojis and make it engaging.`;
   }
   
   // Fallback to enhanced static error handling
-  return getEnhancedStaticErrorMessage(errorString, originalQuery);
+  return getEnhancedStaticErrorMessage(errorString);
 }
 
 // Enhanced static error handling as fallback
-function getEnhancedStaticErrorMessage(errorString: string, originalQuery: string): string {
+function getEnhancedStaticErrorMessage(errorString: string): string {
   // Column doesn't exist errors
   if (errorString.includes('column') && errorString.includes('does not exist')) {
     const columnMatch = errorString.match(/column "([^"]+)"/);
