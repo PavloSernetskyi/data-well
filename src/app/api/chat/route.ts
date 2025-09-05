@@ -64,20 +64,44 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Message is required' }, { status: 400 });
     }
 
-    // First, check if the message is a greeting or non-data question
-    const greetingPatterns = /^(hi|hello|hey|good morning|good afternoon|good evening|how are you|what's up|sup)$/i;
-    const nonDataPatterns = /^(thanks|thank you|bye|goodbye|see you|help|what can you do)$/i;
+    // DYNAMIC INTENT RECOGNITION: Use AI to classify user intent
+    const userIntent = await classifyUserIntent(message, conversationHistory);
+    console.log('Detected intent:', userIntent);
     
-    if (greetingPatterns.test(message.trim())) {
-      return NextResponse.json({ 
-        response: "Hello! I'm your DataWell assistant. I can help you explore your data by answering questions like:\n\n• \"How many users are there?\"\n• \"What's the average age?\"\n• \"Show me users from California\"\n• \"How many people smoke?\"\n• \"What's the average weight of men?\"\n• \"Calculate BMI for all users\"\n• \"Show me users with normal BMI\"\n• \"What's the average BMI?\"\n\nWhat would you like to know about your data?" 
-      });
-    }
-    
-    if (nonDataPatterns.test(message.trim())) {
-      return NextResponse.json({ 
-        response: "You're welcome! I'm here to help you explore your DataWell data. Feel free to ask me any questions about the users in your database!" 
-      });
+    // Handle different intents dynamically
+    switch (userIntent) {
+      case 'greeting':
+        return NextResponse.json({ 
+          response: "Hello! I'm your DataWell assistant. I can help you explore your data by answering questions like:\n\n• \"How many users are there?\"\n• \"What's the average age?\"\n• \"Show me users from California\"\n• \"How many people smoke?\"\n• \"What's the average weight of men?\"\n• \"Calculate BMI for all users\"\n• \"Show me users with normal BMI\"\n• \"What's the average BMI?\"\n\nWhat would you like to know about your data?" 
+        });
+      
+      case 'non_data':
+        return NextResponse.json({ 
+          response: "I understand! I'm here to help you explore your DataWell data whenever you're ready. Feel free to ask me any questions about the users in your database!" 
+        });
+      
+      case 'appreciation':
+        return NextResponse.json({ 
+          response: "Thank you! I'm glad I could help. Feel free to ask me anything else about your data - I'm here to help you explore and understand your DataWell database!" 
+        });
+      
+      case 'dangerous':
+        return NextResponse.json({
+          response: "I can only help you explore and analyze data - I cannot modify or delete anything. I can help you with:\n\n• **Count data:** \"How many users are there?\"\n• **Show data:** \"Show me users from California\"\n• **Analyze data:** \"What's the average age?\"\n• **Filter data:** \"Show me male users who smoke\"\n• **Calculate metrics:** \"What's the average BMI?\"\n\nWhat would you like to explore about your data?"
+        });
+      
+      case 'unclear':
+        return NextResponse.json({
+          response: "I'm not sure what you're looking for. I can help you explore your data by asking questions like:\n\n• \"How many users are there?\"\n• \"What's the average age?\"\n• \"Show me users from California\"\n• \"How many people smoke?\"\n• \"What's the average BMI?\"\n\nWhat would you like to know about your data?"
+        });
+      
+      case 'data_query':
+        // Continue with normal data processing
+        break;
+      
+      default:
+        // Fallback to data processing
+        break;
     }
 
     // Check for name-related questions and explain what data is available
@@ -96,23 +120,14 @@ export async function POST(request: Request) {
       });
     }
 
-    // Check for dangerous operations and explain what I can do
-    const dangerousPatterns = /(delete|drop|update|insert|truncate|alter|remove|clear|wipe)/i;
-    if (dangerousPatterns.test(message)) {
-      return NextResponse.json({
-        response: "I can only help you explore and analyze data - I cannot modify or delete anything. I can help you with:\n\n• **Count data:** \"How many users are there?\"\n• **Show data:** \"Show me users from California\"\n• **Analyze data:** \"What's the average age?\"\n• **Filter data:** \"Show me male users who smoke\"\n• **Calculate metrics:** \"What's the average BMI?\"\n\nWhat would you like to explore about your data?"
-      });
-    }
-
     // NEW: Context-aware responses for "Show them" type questions
     const contextPhrases = /^(show them|show me those|display them|display those|show those|show the results|show the data)$/i;
     if (contextPhrases.test(message.trim()) && conversationHistory.length > 0) {
       // Find the last query that returned results
       const lastQuery = conversationHistory.findLast((msg: { role: string; content: string }) => 
         msg.role === 'user' && 
-        !greetingPatterns.test(msg.content.trim()) && 
-        !nonDataPatterns.test(msg.content.trim()) &&
-        !namePatterns.test(msg.content)
+        !namePatterns.test(msg.content) &&
+        !salaryPatterns.test(msg.content)
       );
       
       if (lastQuery) {
@@ -352,6 +367,116 @@ SQL Query:`;
       response: 'Sorry, I encountered an error. Please try again.' 
     }, { status: 500 });
   }
+}
+
+// DYNAMIC INTENT RECOGNITION: AI-powered intent classification
+async function classifyUserIntent(message: string, conversationHistory: Array<{ role: string; content: string }>): Promise<string> {
+  const intentPrompt = `You are an expert intent classifier for a data analysis chatbot. Classify the user's message into one of these intents:
+
+INTENTS:
+- 'greeting': Hello, hi, hey, good morning, how are you, hi there, hey there, etc.
+- 'non_data': Thanks, nothing, nope, no, bye, goodbye, see you, help, what can you do, etc.
+- 'appreciation': Nice, cool, great, awesome, good, excellent, perfect, etc.
+- 'dangerous': Delete, drop, update, insert, remove, clear, wipe, etc.
+- 'unclear': Vague, confusing, or unclear requests
+- 'data_query': Questions about data, statistics, analysis, etc.
+
+USER MESSAGE: "${message}"
+
+CONVERSATION CONTEXT:
+${conversationHistory.length > 0 ? conversationHistory.map((msg: { role: string; content: string }) => `${msg.role}: ${msg.content}`).join('\n') : 'No previous context'}
+
+CLASSIFICATION RULES:
+1. If it's a greeting or social interaction (hi, hello, hey, good morning, etc.) → 'greeting'
+2. If it's a non-data response (thanks, nothing, nope, bye, etc.) → 'non_data'
+3. If it's appreciation or positive feedback (nice, cool, great, awesome, etc.) → 'appreciation'
+4. If it's a dangerous operation (delete, drop, update, etc.) → 'dangerous'
+5. If it's unclear or vague (hmm, what, etc.) → 'unclear'
+6. If it's asking about data, statistics, or analysis → 'data_query'
+
+EXAMPLES:
+- "hi there" → 'greeting'
+- "hello" → 'greeting'
+- "nothing" → 'non_data'
+- "nope" → 'non_data'
+- "nice" → 'appreciation'
+- "cool" → 'appreciation'
+- "great" → 'appreciation'
+- "delete all" → 'dangerous'
+- "hmm" → 'unclear'
+- "how many users" → 'data_query'
+- "how many users ?" → 'data_query'
+- "what's the average age" → 'data_query'
+- "show me users" → 'data_query'
+
+Return ONLY the intent name, nothing else.`;
+
+  try {
+    const intentRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'llama-3.1-8b-instant',
+        messages: [{ role: 'user', content: intentPrompt }],
+        max_tokens: 50,
+        temperature: 0.1,
+      }),
+    });
+
+    if (intentRes.ok) {
+      const intentData = await intentRes.json();
+      const intent = intentData.choices?.[0]?.message?.content?.trim().toLowerCase();
+      
+      // Validate intent
+      const validIntents = ['greeting', 'non_data', 'dangerous', 'unclear', 'data_query'];
+      if (validIntents.includes(intent)) {
+        return intent;
+      }
+    }
+  } catch (error) {
+    console.error('Intent classification failed:', error);
+  }
+  
+  // Fallback: simple pattern matching (order matters - check specific patterns first)
+  const messageLower = message.toLowerCase().trim();
+  
+  // Check for appreciation responses first (exact matches to avoid conflicts)
+  if (['nice', 'cool', 'great', 'awesome', 'good', 'excellent', 'perfect', 'amazing', 'wow', 'fantastic'].includes(messageLower)) {
+    return 'appreciation';
+  }
+  
+  // Check for non-data responses (exact matches to avoid conflicts)
+  if (['thanks', 'thank you', 'bye', 'goodbye', 'see you', 'help', 'what can you do', 'nothing', 'nope', 'nada'].includes(messageLower)) {
+    return 'non_data';
+  }
+  
+  // Check for greetings (exact matches to avoid conflicts)
+  if (['hi', 'hello', 'hey', 'good morning', 'good afternoon', 'good evening', 'how are you', 'what\'s up', 'sup'].includes(messageLower)) {
+    return 'greeting';
+  }
+  
+  // Check for greetings with additional words
+  if (['hi there', 'hey there', 'hello there'].some(greeting => messageLower.includes(greeting))) {
+    return 'greeting';
+  }
+  
+  if (['delete', 'drop', 'update', 'insert', 'remove', 'clear', 'wipe'].some(word => messageLower.includes(word))) {
+    return 'dangerous';
+  }
+  
+  if (messageLower.length < 3) {
+    return 'unclear';
+  }
+  
+  // Check for data-related keywords
+  if (['users', 'data', 'count', 'average', 'show', 'how many', 'what', 'age', 'height', 'weight', 'smoking', 'drinks', 'bmi', 'california', 'occupation', 'education'].some(keyword => messageLower.includes(keyword))) {
+    return 'data_query';
+  }
+  
+  return 'data_query';
 }
 
 // Smart SQL query validation function
