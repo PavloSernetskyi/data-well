@@ -78,11 +78,11 @@ export default function ChatWidget() {
       {/* Floating Chat Button */}
       <button
         onClick={() => setIsOpen(true)}
-        className="fixed bottom-6 right-6 bg-teal-500 hover:bg-teal-600 text-white rounded-full p-4 shadow-lg hover:shadow-xl transition-all duration-200 z-50"
+        className="fixed bottom-4 right-4 sm:bottom-6 sm:right-6 bg-teal-500 hover:bg-teal-600 text-white rounded-full p-3 sm:p-4 shadow-lg hover:shadow-xl transition-all duration-200 z-50"
         aria-label="Open chat"
       >
         <svg
-          className="w-6 h-6"
+          className="w-5 h-5 sm:w-6 sm:h-6"
           fill="none"
           stroke="currentColor"
           viewBox="0 0 24 24"
@@ -97,15 +97,15 @@ export default function ChatWidget() {
         </svg>
       </button>
 
-      {/* Chat Modal - Fixed positioning without full screen overlay */}
+      {/* Chat Modal - Responsive positioning */}
       {isOpen && (
-        <div className="fixed bottom-6 right-6 w-96 h-96 bg-white rounded-lg shadow-xl z-50 flex flex-col">
+        <div className="fixed inset-0 sm:inset-auto sm:bottom-6 sm:right-6 sm:w-96 sm:h-96 w-full h-full bg-white sm:rounded-lg shadow-xl z-50 flex flex-col">
           {/* Chat Header */}
-          <div className="bg-teal-500 text-white p-4 rounded-t-lg flex justify-between items-center">
-            <h3 className="font-semibold">DataWell Chat Assistant</h3>
+          <div className="bg-teal-500 text-white p-3 sm:p-4 sm:rounded-t-lg flex justify-between items-center">
+            <h3 className="font-semibold text-sm sm:text-base">DataWell Chat Assistant</h3>
             <button
               onClick={() => setIsOpen(false)}
-              className="text-white hover:text-gray-200"
+              className="text-white hover:text-gray-200 p-1"
               aria-label="Close chat"
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -115,20 +115,20 @@ export default function ChatWidget() {
           </div>
 
           {/* Chat Messages Area */}
-          <div className="flex-1 p-4 overflow-y-auto space-y-4">
+          <div className="flex-1 p-3 sm:p-4 overflow-y-auto space-y-3 sm:space-y-4">
             {messages.map((message) => (
               <div
                 key={message.id}
                 className={`flex ${message.isUser ? 'justify-end' : 'justify-start'}`}
               >
                 <div
-                  className={`max-w-xs px-4 py-2 rounded-lg ${
+                  className={`max-w-[85%] sm:max-w-xs px-3 sm:px-4 py-2 rounded-lg ${
                     message.isUser
                       ? 'bg-teal-500 text-white'
                       : 'bg-gray-100 text-gray-800'
                   }`}
                 >
-                  <p className="text-sm whitespace-pre-wrap">{message.text}</p>
+                  <p className="text-xs sm:text-sm whitespace-pre-wrap">{message.text}</p>
                   <p className="text-xs opacity-70 mt-1">
                     {message.timestamp.toLocaleTimeString()}
                   </p>
@@ -137,7 +137,7 @@ export default function ChatWidget() {
             ))}
             {isLoading && (
               <div className="flex justify-start">
-                <div className="bg-gray-100 text-gray-800 px-4 py-2 rounded-lg">
+                <div className="bg-gray-100 text-gray-800 px-3 sm:px-4 py-2 rounded-lg">
                   <div className="flex space-x-1">
                     <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
                     <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
@@ -149,7 +149,7 @@ export default function ChatWidget() {
           </div>
 
           {/* Chat Input */}
-          <div className="p-4 border-t">
+          <div className="p-3 sm:p-4 border-t">
             <div className="flex space-x-2">
               <input
                 type="text"
@@ -157,13 +157,13 @@ export default function ChatWidget() {
                 onChange={(e) => setInputText(e.target.value)}
                 onKeyPress={handleKeyPress}
                 placeholder="Ask about the data..."
-                className="flex-1 border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-teal-500 text-gray-900 placeholder-gray-500"
+                className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm sm:text-base focus:outline-none focus:ring-2 focus:ring-teal-500 text-gray-900 placeholder-gray-500"
                 disabled={isLoading}
               />
               <button
                 onClick={handleSendMessage}
                 disabled={!inputText.trim() || isLoading}
-                className="bg-teal-500 hover:bg-teal-600 disabled:bg-gray-300 text-white px-4 py-2 rounded-lg transition-colors"
+                className="bg-teal-500 hover:bg-teal-600 disabled:bg-gray-300 text-white px-3 sm:px-4 py-2 rounded-lg transition-colors text-sm sm:text-base"
               >
                 Send
               </button>
