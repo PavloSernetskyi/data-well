@@ -37,10 +37,19 @@ export default function ChatWidget() {
     setIsLoading(true);
 
     try {
+      // Prepare conversation history for context
+      const conversationHistory = messages.map(msg => ({
+        role: msg.isUser ? 'user' : 'assistant',
+        content: msg.text
+      }));
+
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: inputText })
+        body: JSON.stringify({ 
+          message: inputText,
+          conversationHistory: conversationHistory
+        })
       });
 
       const data = await response.json();
