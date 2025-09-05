@@ -88,6 +88,22 @@ export async function POST(request: Request) {
       });
     }
 
+    // Check for salary/income-related questions and explain what data is available
+    const salaryPatterns = /(salary|income|wage|pay|money|earnings|esalary)/i;
+    if (salaryPatterns.test(message)) {
+      return NextResponse.json({
+        response: "I don't have salary or income data in this database. The available user information includes:\n\n• Age, Gender, Height, Weight\n• Location (City, Country, Zip)\n• Occupation, Education\n• Smoking status, Drinks per week\n\nTry asking about these fields instead, like:\n• \"What occupations do we have?\"\n• \"What's the average age?\"\n• \"How many people are from California?\"\n• \"What's the education distribution?\""
+      });
+    }
+
+    // Check for dangerous operations and explain what I can do
+    const dangerousPatterns = /(delete|drop|update|insert|truncate|alter|remove|clear|wipe)/i;
+    if (dangerousPatterns.test(message)) {
+      return NextResponse.json({
+        response: "I can only help you explore and analyze data - I cannot modify or delete anything. I can help you with:\n\n• **Count data:** \"How many users are there?\"\n• **Show data:** \"Show me users from California\"\n• **Analyze data:** \"What's the average age?\"\n• **Filter data:** \"Show me male users who smoke\"\n• **Calculate metrics:** \"What's the average BMI?\"\n\nWhat would you like to explore about your data?"
+      });
+    }
+
     // NEW: Context-aware responses for "Show them" type questions
     const contextPhrases = /^(show them|show me those|display them|display those|show those|show the results|show the data)$/i;
     if (contextPhrases.test(message.trim()) && conversationHistory.length > 0) {
@@ -181,7 +197,7 @@ SQL Query:`;
       ? `\n\nCONVERSATION CONTEXT:\n${conversationHistory.map((msg: { role: string; content: string }) => `${msg.role}: ${msg.content}`).join('\n')}\n`
       : '';
 
-    const prompt = `You are a SQL assistant with conversation context. Convert this user request into a valid SQL query based on the following TABLE users (id, age, gender, height, weight, city, country, zip, occupation, education, smoking, drinks_per_week).
+    const prompt = `You are an expert SQL assistant with conversation context. Convert this user request into a valid SQL query based on the following TABLE users (id, age, gender, height, weight, city, country, zip, occupation, education, smoking, drinks_per_week).
 
 IMPORTANT COLUMN MAPPINGS:
 - smoking: 'Yes' or 'No' (string values)
@@ -197,6 +213,16 @@ BMI CALCULATION SUPPORT:
   WHEN weight / ((height/100.0) * (height/100.0)) < 30 THEN 'Overweight'
   ELSE 'Obese' END AS bmi_category
 - BMI queries should include both height and weight in the SELECT clause
+
+ERROR PREVENTION RULES:
+- NEVER use columns that don't exist (first_name, last_name, name, email, phone, etc.)
+- ALWAYS use exact column names from the schema
+- ALWAYS use single quotes for string values
+- ALWAYS use proper SQL syntax
+- ALWAYS validate data types (age, height, weight are integers)
+- ALWAYS use ILIKE for case-insensitive text searches
+- ALWAYS handle NULL values properly
+
 ${conversationContext}
 User Request: "${message}"
 
@@ -207,9 +233,9 @@ CONTEXT AWARENESS:
 - If user says "Filter by [something]", add a WHERE clause to the previous query
 - If user asks about BMI, include BMI calculation in the SELECT clause
 
-Rules:
+STRICT RULES:
 1. Only use SELECT statements
-2. Use proper column names: id, age, gender, height, weight, city, country, zip, occupation, education, smoking, drinks_per_week
+2. Use EXACT column names: id, age, gender, height, weight, city, country, zip, occupation, education, smoking, drinks_per_week
 3. Use single quotes for string values
 4. For smoking queries, use: smoking = 'Yes' or smoking = 'No'
 5. For location queries, check both 'country' and 'city' columns
@@ -220,6 +246,8 @@ Rules:
 10. Be specific and accurate
 11. If the request is unclear, respond with "I can only help with data questions. Please ask me something about the users in the database."
 12. Return ONLY the SQL query, no explanations
+13. DOUBLE-CHECK column names before generating SQL
+14. Use proper data types and formatting
 
 SQL Query:`;
 
@@ -270,6 +298,26 @@ SQL Query:`;
       });
     }
 
+    // Smart query validation before execution
+    const validationResult = validateSQLQuery(sqlQuery);
+    if (!validationResult.isValid) {
+      return NextResponse.json({ 
+        response: `🔍 **What went wrong:** ${validationResult.error}
+
+💡 **Why:** ${validationResult.reason}
+
+🔧 **How to fix:** ${validationResult.suggestion}
+
+🚀 **Try asking:**
+• "How many users are there?"
+• "What's the average age?"
+• "Show me users from California"
+• "How many people smoke?"
+
+📊 **Related insights:** I can help you explore your data safely and effectively!`
+      });
+    }
+
     // Execute the SQL query
     try {
       console.log('Executing SQL:', sqlQuery);
@@ -291,8 +339,8 @@ SQL Query:`;
     } catch (sqlError) {
       console.error('SQL execution error:', sqlError);
       
-      // NEW: Smart error handling with specific messages
-      const errorMessage = getSmartErrorMessage(sqlError);
+      // ENHANCED: AI-powered smart error handling
+      const errorMessage = await getSmartErrorMessage(sqlError, sqlQuery, conversationHistory);
       return NextResponse.json({ 
         response: errorMessage
       });
@@ -306,35 +354,251 @@ SQL Query:`;
   }
 }
 
-// NEW: Smart error message function
-function getSmartErrorMessage(error: unknown): string {
+// Smart SQL query validation function
+function validateSQLQuery(sqlQuery: string): { isValid: boolean; error?: string; reason?: string; suggestion?: string } {
+  const query = sqlQuery.toLowerCase().trim();
+  
+      // Check for dangerous operations
+    if (query.includes('drop') || query.includes('delete') || query.includes('update') || query.includes('insert') || query.includes('truncate') || query.includes('alter')) {
+      return {
+        isValid: false,
+        error: 'Dangerous operation detected',
+        reason: 'I can only help with SELECT queries for data exploration',
+        suggestion: 'Ask me to show or analyze data instead of modifying it'
+      };
+    }
+    
+    // Check for specific dangerous phrases
+    if (query.includes('delete all') || query.includes('drop table') || query.includes('truncate table')) {
+      return {
+        isValid: false,
+        error: 'Dangerous operation detected',
+        reason: 'I can only help with SELECT queries for data exploration',
+        suggestion: 'Ask me to show or analyze data instead of modifying it'
+      };
+    }
+  
+      // Check for non-existent columns
+    const invalidColumns = ['first_name', 'last_name', 'name', 'email', 'phone', 'address', 'salary', 'income', 'esalary'];
+    const foundInvalidColumns = invalidColumns.filter(col => query.includes(col));
+    
+    if (foundInvalidColumns.length > 0) {
+      return {
+        isValid: false,
+        error: `Invalid column(s): ${foundInvalidColumns.join(', ')}`,
+        reason: 'These columns don\'t exist in the database',
+        suggestion: 'Use available columns: age, gender, height, weight, city, country, zip, occupation, education, smoking, drinks_per_week'
+      };
+    }
+  
+  // Check for proper SQL structure
+  if (!query.startsWith('select')) {
+    return {
+      isValid: false,
+      error: 'Invalid SQL structure',
+      reason: 'Query must start with SELECT',
+      suggestion: 'Ask me to show or analyze data using proper SELECT statements'
+    };
+  }
+  
+  // Check for proper column names (more accurate validation)
+  const validColumns = ['id', 'age', 'gender', 'height', 'weight', 'city', 'country', 'zip', 'occupation', 'education', 'smoking', 'drinks_per_week'];
+  const sqlKeywords = ['select', 'from', 'where', 'and', 'or', 'count', 'avg', 'sum', 'max', 'min', 'round', 'case', 'when', 'then', 'else', 'end', 'as', 'in', 'like', 'ilike', 'group', 'by', 'order', 'limit', 'offset', 'bmi', 'bmi_category', 'users', 'usa', 'us', 'california', 'ca', 'cali', 'yes', 'no', 'male', 'female', 'other'];
+  
+  // Extract potential column names from SELECT clause
+  const selectMatch = query.match(/select\s+(.*?)\s+from/i);
+  if (selectMatch) {
+    const selectClause = selectMatch[1];
+    const columnMatches = selectClause.match(/\b\w+\b/g) || [];
+    const invalidColumnNames = columnMatches.filter(col => 
+      !validColumns.includes(col) && 
+      !sqlKeywords.includes(col) &&
+      !col.match(/^\d+$/) && // numbers
+      !col.match(/^'[^']*'$/) // quoted strings
+    );
+    
+    if (invalidColumnNames.length > 0) {
+      return {
+        isValid: false,
+        error: `Unknown column(s): ${invalidColumnNames.join(', ')}`,
+        reason: 'These columns don\'t exist in the users table',
+        suggestion: 'Use only the available columns: age, gender, height, weight, city, country, zip, occupation, education, smoking, drinks_per_week'
+      };
+    }
+  }
+  
+  return { isValid: true };
+}
+
+// ENHANCED: AI-powered smart error analysis
+async function getSmartErrorMessage(error: unknown, originalQuery: string, conversationHistory: any[]): Promise<string> {
   const errorString = (error as Error)?.message || String(error) || '';
   
+  console.log('Analyzing error:', errorString);
+  console.log('Original query:', originalQuery);
+  
+  // Create a smart error analysis prompt for Groq
+  const errorAnalysisPrompt = `You are an expert SQL error analyzer. Analyze this error and provide helpful guidance.
+
+ERROR DETAILS:
+- Error: ${errorString}
+- Original Query: ${originalQuery}
+- Available Schema: users (id, age, gender, height, weight, city, country, zip, occupation, education, smoking, drinks_per_week)
+
+CONVERSATION CONTEXT:
+${conversationHistory.length > 0 ? conversationHistory.map((msg: any) => `${msg.role}: ${msg.content}`).join('\n') : 'No previous context'}
+
+ANALYZE AND PROVIDE:
+1. What went wrong (in simple terms)
+2. Why it happened
+3. Specific suggestions to fix it
+4. Alternative ways to ask the same question
+5. Proactive suggestions for related queries
+
+FORMAT YOUR RESPONSE AS:
+🔍 **What went wrong:** [Brief explanation]
+💡 **Why:** [Technical reason]
+🔧 **How to fix:** [Specific suggestions]
+🚀 **Try asking:** [Alternative questions]
+📊 **Related insights:** [Proactive suggestions]
+
+Be helpful, educational, and encouraging. Use emojis and make it engaging.`;
+
+  try {
+    // Call Groq for intelligent error analysis
+    const errorAnalysisRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'llama-3.1-8b-instant',
+        messages: [{ role: 'user', content: errorAnalysisPrompt }],
+        max_tokens: 300,
+        temperature: 0.3,
+      }),
+    });
+
+    if (errorAnalysisRes.ok) {
+      const errorAnalysisData = await errorAnalysisRes.json();
+      const smartErrorResponse = errorAnalysisData.choices?.[0]?.message?.content?.trim();
+      
+      if (smartErrorResponse) {
+        return smartErrorResponse;
+      }
+    }
+  } catch (analysisError) {
+    console.error('Error analysis failed:', analysisError);
+  }
+  
+  // Fallback to enhanced static error handling
+  return getEnhancedStaticErrorMessage(errorString, originalQuery);
+}
+
+// Enhanced static error handling as fallback
+function getEnhancedStaticErrorMessage(errorString: string, originalQuery: string): string {
   // Column doesn't exist errors
   if (errorString.includes('column') && errorString.includes('does not exist')) {
     const columnMatch = errorString.match(/column "([^"]+)"/);
     const columnName = columnMatch ? columnMatch[1] : 'unknown';
     
-    return `I couldn't find the column "${columnName}" in the database. Available columns are:\n\n• Age, Gender, Height, Weight\n• City, Country, Zip\n• Occupation, Education\n• Smoking, Drinks per week\n\nTry rephrasing your question using these available fields.`;
+    return `🔍 **What went wrong:** I couldn't find the column "${columnName}" in the database.
+
+💡 **Why:** The database doesn't have that field name.
+
+🔧 **How to fix:** Use these available columns instead:
+• **Personal:** Age, Gender, Height, Weight
+• **Location:** City, Country, Zip  
+• **Background:** Occupation, Education
+• **Lifestyle:** Smoking, Drinks per week
+
+🚀 **Try asking:**
+• "Show me users by age"
+• "What's the average height?"
+• "How many people are from California?"
+• "What occupations do we have?"
+
+📊 **Related insights:** I can help you explore demographics, health metrics, and geographic distribution!`;
   }
   
   // Syntax errors
   if (errorString.includes('syntax error') || errorString.includes('invalid syntax')) {
-    return `I had trouble understanding your question. Try asking something simpler like:\n\n• "How many users are there?"\n• "What's the average age?"\n• "Show me all users from California"`;
+    return `🔍 **What went wrong:** I had trouble understanding your question structure.
+
+💡 **Why:** The AI generated SQL that doesn't match the database format.
+
+🔧 **How to fix:** Try asking more simply:
+• "How many users are there?"
+• "What's the average age?"
+• "Show me users from California"
+• "How many people smoke?"
+
+🚀 **Try asking:**
+• "Count all users"
+• "Average age of users"
+• "Users in California"
+• "Smoking statistics"
+
+📊 **Related insights:** I can help with counts, averages, filtering, and data exploration!`;
   }
   
   // Permission errors
   if (errorString.includes('permission') || errorString.includes('access')) {
-    return `I don't have permission to access that data. Try asking about user information instead.`;
+    return `🔍 **What went wrong:** I don't have permission to access that data.
+
+💡 **Why:** The query tried to access restricted information.
+
+🔧 **How to fix:** Ask about user information instead:
+• "How many users are there?"
+• "What's the average age?"
+• "Show me user demographics"
+
+🚀 **Try asking:**
+• "User statistics"
+• "Demographic breakdown"
+• "Health metrics"
+• "Geographic distribution"
+
+📊 **Related insights:** I can help you explore user data safely and effectively!`;
   }
   
   // Connection errors
   if (errorString.includes('connection') || errorString.includes('timeout')) {
-    return `I'm having trouble connecting to the database. Please try again in a moment.`;
+    return `🔍 **What went wrong:** I'm having trouble connecting to the database.
+
+💡 **Why:** Network or database connectivity issue.
+
+🔧 **How to fix:** Please try again in a moment.
+
+🚀 **Try asking:** Once connected, try:
+• "How many users are there?"
+• "What's the average age?"
+• "Show me user data"
+
+📊 **Related insights:** I'll be ready to help explore your data once the connection is restored!`;
   }
   
-  // Generic fallback with helpful suggestions
-  return `I encountered an error with your query. Try asking something like:\n\n• "How many users are there?"\n• "What's the average age?"\n• "Show me users from California"\n• "How many people smoke?"\n\nOr be more specific about what data you're looking for.`;
+  // Generic fallback with enhanced suggestions
+  return `🔍 **What went wrong:** I encountered an unexpected error with your query.
+
+💡 **Why:** Something didn't work as expected in the database query.
+
+🔧 **How to fix:** Try these proven questions:
+• "How many users are there?"
+• "What's the average age?"
+• "Show me users from California"
+• "How many people smoke?"
+• "What's the average height?"
+
+🚀 **Try asking:**
+• "User count"
+• "Age statistics" 
+• "Location data"
+• "Health metrics"
+• "Demographic breakdown"
+
+📊 **Related insights:** I can help you discover patterns in your user data!`;
 }
 
 // Helper function to format query results with clean, simple format
