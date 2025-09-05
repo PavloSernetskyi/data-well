@@ -120,9 +120,13 @@ export async function POST(request: Request) {
       });
     }
 
+
     // NEW: Context-aware responses for "Show them" type questions
     const contextPhrases = /^(show them|show me those|display them|display those|show those|show the results|show the data)$/i;
-    if (contextPhrases.test(message.trim()) && conversationHistory.length > 0) {
+    const followUpPhrases = /(how many of them|how many of those|what about them|what about those|show me the|show the|filter by|sort by)/i;
+    const paginationPhrases = /(show me more|show more|next page|next 10|from \d+ to \d+|users \d+-\d+|from \d+-\d+|users with bmi from \d+-\d+)/i;
+    
+    if ((contextPhrases.test(message.trim()) || followUpPhrases.test(message.trim()) || paginationPhrases.test(message.trim())) && conversationHistory.length > 0) {
       // Find the last query that returned results
       const lastQuery = conversationHistory.findLast((msg: { role: string; content: string }) => 
         msg.role === 'user' && 
@@ -134,10 +138,83 @@ export async function POST(request: Request) {
         // Re-run the last query to show the actual results
         console.log('Context detected - re-running last query:', lastQuery.content);
         
-        // Create a context-aware prompt that shows the actual data
-        const contextPrompt = `You are a SQL assistant. The user previously asked: "${lastQuery.content}" and got a count result. Now they want to see the actual data records.
+        // Handle pagination requests specifically
+        if (paginationPhrases.test(message.trim())) {
+          console.log('Pagination request detected:', message);
+          
+          // Extract range from message (e.g., "from 11-20" or "users 11-20")
+          const rangeMatch = message.match(/(\d+)-(\d+)/);
+          if (rangeMatch) {
+            const start = parseInt(rangeMatch[1]);
+            const end = parseInt(rangeMatch[2]);
+            const limit = end - start + 1;
+            const offset = start - 1;
+            
+            console.log(`Pagination: showing users ${start}-${end} (offset: ${offset}, limit: ${limit})`);
+            
+            // Generate paginated BMI query
+            const paginatedBmiQuery = `SELECT *, ROUND(weight / ((height/100.0) * (height/100.0)), 1) AS bmi FROM users WHERE height IS NOT NULL AND weight IS NOT NULL ORDER BY id LIMIT ${limit} OFFSET ${offset}`;
+            
+            try {
+              console.log('Executing paginated BMI query:', paginatedBmiQuery);
+              const paginatedResult = await db.execute(paginatedBmiQuery);
+              
+              if (paginatedResult.rows && paginatedResult.rows.length > 0) {
+                const formattedResult = formatQueryResult(paginatedResult.rows, start);
+                const paginationInfo = `\n\n📊 **Showing users ${start}-${end} of 33 users with BMI data**\n\n💡 **Want to see more?** Try asking:\n• "Show me users with BMI from ${end + 1}-${end + 10}"\n• "Show me all users with BMI" (for complete list)\n• "What's the average BMI?" (for summary)`;
+                
+                return NextResponse.json({ 
+                  response: formattedResult + paginationInfo,
+                  sqlQuery: paginatedBmiQuery
+                });
+              } else {
+                return NextResponse.json({ 
+                  response: `No users found in range ${start}-${end}. Try asking for a different range or "Show me all users with BMI".` 
+                });
+              }
+            } catch (paginationError) {
+              console.error('Pagination query execution error:', paginationError);
+            }
+          } else if (/(show me more|show more|next page|next 10)/i.test(message.trim())) {
+            // Handle "Show me more users with BMI" without specific range
+            console.log('Next page request detected');
+            
+            // Get the next 10 users (assuming we showed 1-10 before)
+            const nextPageQuery = `SELECT *, ROUND(weight / ((height/100.0) * (height/100.0)), 1) AS bmi FROM users WHERE height IS NOT NULL AND weight IS NOT NULL ORDER BY id LIMIT 10 OFFSET 10`;
+            
+            try {
+              console.log('Executing next page BMI query:', nextPageQuery);
+              const nextPageResult = await db.execute(nextPageQuery);
+              
+              if (nextPageResult.rows && nextPageResult.rows.length > 0) {
+                const formattedResult = formatQueryResult(nextPageResult.rows, 11);
+                const paginationInfo = `\n\n📊 **Showing users 11-20 of 33 users with BMI data**\n\n💡 **Want to see more?** Try asking:\n• "Show me users with BMI from 21-30"\n• "Show me all users with BMI" (for complete list)\n• "What's the average BMI?" (for summary)`;
+                
+                return NextResponse.json({ 
+                  response: formattedResult + paginationInfo,
+                  sqlQuery: nextPageQuery
+                });
+              } else {
+                return NextResponse.json({ 
+                  response: 'No more users found. You\'ve seen all users with BMI data!' 
+                });
+              }
+            } catch (nextPageError) {
+              console.error('Next page query execution error:', nextPageError);
+            }
+          }
+        }
+        
+        // Create a context-aware prompt that handles follow-up questions
+        const contextPrompt = `You are a SQL assistant. The user previously asked: "${lastQuery.content}" and got a result. Now they're asking a follow-up question: "${message}"
 
-Convert this into a SQL query to show the actual records (not just count) based on the following TABLE users (id, age, gender, height, weight, city, country, zip, occupation, education, smoking, drinks_per_week).
+Convert this into a SQL query based on the following TABLE users (id, age, gender, height, weight, city, country, zip, occupation, education, smoking, drinks_per_week).
+
+CONTEXT UNDERSTANDING:
+- If the follow-up asks "How many of them [condition]", apply the condition to the previous query context
+- If the follow-up asks "What about [something]", add that condition to the previous query
+- If the follow-up asks "Show me the [something]", modify the previous query accordingly
+- Build upon the previous query context, don't start from scratch
 
 IMPORTANT COLUMN MAPPINGS:
 - smoking: 'Yes' or 'No' (string values)
@@ -212,6 +289,57 @@ SQL Query:`;
       ? `\n\nCONVERSATION CONTEXT:\n${conversationHistory.map((msg: { role: string; content: string }) => `${msg.role}: ${msg.content}`).join('\n')}\n`
       : '';
 
+    // Check if this is a BMI-related query
+    const bmiPatterns = /(bmi|body mass index|weight.*height|height.*weight|overweight|underweight|obese|normal weight|calculate.*bmi|bmi.*calculate)/i;
+    const isBmiQuery = bmiPatterns.test(message);
+    
+    // Handle BMI calculation requests specifically
+    if (isBmiQuery) {
+      console.log('BMI query detected:', message);
+      
+      // If user asks "can you calculate BMI?" or similar, show them BMI data
+      if (/(can you calculate|calculate|show.*bmi|bmi.*show)/i.test(message)) {
+        console.log('Generating BMI calculation query');
+        
+        // First, get the total count
+        const countQuery = `SELECT COUNT(*) as total FROM users WHERE height IS NOT NULL AND weight IS NOT NULL`;
+        const countResult = await db.execute(countQuery);
+        const totalUsers = Number(countResult.rows[0]?.total) || 0;
+        
+        // Then show first 10 users with BMI
+        const bmiQuery = `SELECT *, ROUND(weight / ((height/100.0) * (height/100.0)), 1) AS bmi FROM users WHERE height IS NOT NULL AND weight IS NOT NULL LIMIT 10`;
+        
+        try {
+          console.log('Executing BMI query:', bmiQuery);
+          const bmiResult = await db.execute(bmiQuery);
+          
+          if (bmiResult.rows && bmiResult.rows.length > 0) {
+            const formattedResult = formatQueryResult(bmiResult.rows, 1);
+            
+            // Add pagination info if there are more users
+            let paginationInfo = '';
+            if (totalUsers > 10) {
+              paginationInfo = `\n\n📊 **Showing 10 of ${totalUsers} users with BMI data**\n\n💡 **Want to see more?** Try asking:\n• "Show me more users with BMI"\n• "Show me users with BMI from 11-20"\n• "Show me all users with BMI" (for complete list)\n• "What's the average BMI?" (for summary)`;
+            }
+            
+            return NextResponse.json({ 
+              response: formattedResult + paginationInfo,
+              sqlQuery: bmiQuery
+            });
+          } else {
+            return NextResponse.json({ 
+              response: 'No users found with valid height and weight data for BMI calculation.' 
+            });
+          }
+        } catch (bmiError) {
+          console.error('BMI query execution error:', bmiError);
+          return NextResponse.json({ 
+            response: 'I can calculate BMI! BMI is calculated using height and weight. Try asking:\n\n• "Show me users with BMI"\n• "What\'s the average BMI?"\n• "Calculate BMI for all users"\n• "Show me users with normal BMI"' 
+          });
+        }
+      }
+    }
+    
     const prompt = `You are an expert SQL assistant with conversation context. Convert this user request into a valid SQL query based on the following TABLE users (id, age, gender, height, weight, city, country, zip, occupation, education, smoking, drinks_per_week).
 
 IMPORTANT COLUMN MAPPINGS:
@@ -221,13 +349,14 @@ IMPORTANT COLUMN MAPPINGS:
 - drinks_per_week: integer
 
 BMI CALCULATION SUPPORT:
-- For BMI queries, use: ROUND(weight / ((height/100.0) * (height/100.0)), 1) AS bmi
+- BMI is NOT a stored column - it must be calculated using: ROUND(weight / ((height/100.0) * (height/100.0)), 1) AS bmi
 - For BMI categories, use: CASE 
   WHEN weight / ((height/100.0) * (height/100.0)) < 18.5 THEN 'Underweight'
   WHEN weight / ((height/100.0) * (height/100.0)) < 25 THEN 'Normal weight'
   WHEN weight / ((height/100.0) * (height/100.0)) < 30 THEN 'Overweight'
   ELSE 'Obese' END AS bmi_category
 - BMI queries should include both height and weight in the SELECT clause
+- NEVER reference 'bmi' as a column - always calculate it
 
 ERROR PREVENTION RULES:
 - NEVER use columns that don't exist (first_name, last_name, name, email, phone, etc.)
@@ -247,6 +376,14 @@ CONTEXT AWARENESS:
 - If user says "More details", show additional fields from the previous query
 - If user says "Filter by [something]", add a WHERE clause to the previous query
 - If user asks about BMI, include BMI calculation in the SELECT clause
+- If user says "How many of them [condition]", apply the condition to the previous result set
+- If user says "them" or "those", refer to the previous query results
+- If user asks follow-up questions, build upon the previous query context
+
+CONVERSATION CONTEXT EXAMPLES:
+- Previous: "How many users in database?" → Current: "How many of them under age 25?" → SELECT COUNT(*) FROM users WHERE age < 25
+- Previous: "Show me users from California" → Current: "What about smokers?" → SELECT * FROM users WHERE country IN ('USA', 'US', 'Usa') AND (city ILIKE '%california%' OR city ILIKE '%ca%' OR city ILIKE '%cali%') AND smoking = 'Yes' LIMIT 10
+- Previous: "Show all users" → Current: "Show me the youngest ones" → SELECT * FROM users ORDER BY age ASC LIMIT 10
 
 STRICT RULES:
 1. Only use SELECT statements
@@ -263,6 +400,32 @@ STRICT RULES:
 12. Return ONLY the SQL query, no explanations
 13. DOUBLE-CHECK column names before generating SQL
 14. Use proper data types and formatting
+15. For aggregation queries (average, count, sum, max, min), return ONLY the aggregated result, not individual records
+16. For "average BMI" queries, use: SELECT AVG(ROUND(weight / ((height/100.0) * (height/100.0)), 1)) AS average_bmi FROM users WHERE height IS NOT NULL AND weight IS NOT NULL
+17. For BMI calculations, always use the formula: ROUND(weight / ((height/100.0) * (height/100.0)), 1) AS bmi
+18. Never reference non-existent columns like 'bmi' or 'avg_bmi' - always calculate them
+19. Example: "What's the average BMI?" → SELECT AVG(ROUND(weight / ((height/100.0) * (height/100.0)), 1)) AS average_bmi FROM users WHERE height IS NOT NULL AND weight IS NOT NULL
+20. CRITICAL: Only include BMI calculations when the user specifically asks about BMI. For general queries like "show all users", "users age 25", "how many records", do NOT include BMI calculations.
+21. Example: "how many records in database" → SELECT COUNT(*) FROM users
+22. Example: "show all users" → SELECT * FROM users LIMIT 10
+23. Example: "show all users age 25" → SELECT * FROM users WHERE age = 25 LIMIT 10
+24. NEVER add BMI calculations unless the user specifically asks about BMI, BMI categories, or health metrics.
+
+QUERY TYPE DETECTION:
+- If user asks "What's the average [something]" → Use AVG() function
+- If user asks "How many [something]" → Use COUNT() function  
+- If user asks "Show me [something]" → Use SELECT * to show records
+- If user asks "Show users from [location]" → Use SELECT * with WHERE clause
+- If user asks "Show all users" → Use SELECT * LIMIT 10
+- If user asks "Show users with [condition]" → Use SELECT * with WHERE clause
+
+EXAMPLES:
+- "What's the average weight of men?" → SELECT AVG(weight) AS avg FROM users WHERE gender = 'Male'
+- "How many users are there?" → SELECT COUNT(*) FROM users
+- "Show me users from California" → SELECT * FROM users WHERE country IN ('USA', 'US', 'Usa') AND (city ILIKE '%california%' OR city ILIKE '%ca%' OR city ILIKE '%cali%') LIMIT 10
+- "Show all users" → SELECT * FROM users LIMIT 10
+- "Show users who smoke" → SELECT * FROM users WHERE smoking = 'Yes' LIMIT 10
+${!isBmiQuery ? '\n\nCRITICAL INSTRUCTION: This query is NOT about BMI. Do NOT include any BMI calculations, BMI categories, or health metrics. Only use the basic columns: id, age, gender, height, weight, city, country, zip, occupation, education, smoking, drinks_per_week.' : ''}
 
 SQL Query:`;
 
@@ -294,17 +457,45 @@ SQL Query:`;
     console.log('Groq response status:', groqRes.status);
 
     if (!groqRes.ok) {
-      console.error('Groq API error:', await groqRes.text());
-      return NextResponse.json({ 
-        response: 'Sorry, I encountered an error with the AI service. Please try again.' 
-      });
+      const errorText = await groqRes.text();
+      console.error('Groq API error:', errorText);
+      console.error('Groq response status:', groqRes.status);
+      
+      // Try to provide a more helpful error message
+      if (groqRes.status === 429) {
+        return NextResponse.json({ 
+          response: 'I\'m experiencing high demand right now. Please try again in a moment.' 
+        });
+      } else if (groqRes.status === 401) {
+        return NextResponse.json({ 
+          response: 'There\'s an issue with my AI service. Please try again later.' 
+        });
+      } else {
+        return NextResponse.json({ 
+          response: 'Sorry, I encountered an error with the AI service. Please try again.' 
+        });
+      }
     }
 
     const groqData = await groqRes.json();
     console.log('Groq response data:', groqData);
     
-    const sqlQuery = groqData.choices?.[0]?.message?.content?.trim();
+    let sqlQuery = groqData.choices?.[0]?.message?.content?.trim();
     console.log('Generated SQL:', sqlQuery);
+    console.log('User message:', message);
+    console.log('Query type detection - is aggregation?', /(average|avg|count|sum|max|min|total)\s+(bmi|age|height|weight|users|people)/i.test(message));
+    console.log('Query type detection - is show query?', /(show|display|list|find)\s+(me|all|users|people)/i.test(message));
+
+    // Smart query optimization: Fix aggregation queries
+    const isAggregationQuery = /(average|avg|count|sum|max|min|total)\s+(bmi|age|height|weight|users|people)/i.test(message);
+    if (isAggregationQuery) {
+      // For average BMI queries, always replace with proper aggregation
+      if (message.toLowerCase().includes('average bmi') || message.toLowerCase().includes('avg bmi')) {
+        console.log('Fixing average BMI query - replacing with proper aggregation');
+        // Always replace with proper aggregation for BMI queries
+        sqlQuery = 'SELECT AVG(ROUND(weight / ((height/100.0) * (height/100.0)), 1)) AS average_bmi FROM users WHERE height IS NOT NULL AND weight IS NOT NULL';
+      }
+    }
 
     // Check if the response is not a SQL query
     if (!sqlQuery || sqlQuery.toLowerCase().includes('i can only help') || !sqlQuery.toLowerCase().includes('select')) {
@@ -375,7 +566,7 @@ async function classifyUserIntent(message: string, conversationHistory: Array<{ 
 
 INTENTS:
 - 'greeting': Hello, hi, hey, good morning, how are you, hi there, hey there, etc.
-- 'non_data': Thanks, nothing, nope, no, bye, goodbye, see you, help, what can you do, etc.
+- 'non_data': Thanks, nothing, nope, no, bye, goodbye, see you, help, what can you do, okay, ok, alright, sure, etc.
 - 'appreciation': Nice, cool, great, awesome, good, excellent, perfect, etc.
 - 'dangerous': Delete, drop, update, insert, remove, clear, wipe, etc.
 - 'unclear': Vague, confusing, or unclear requests
@@ -391,8 +582,10 @@ CLASSIFICATION RULES:
 2. If it's a non-data response (thanks, nothing, nope, bye, etc.) → 'non_data'
 3. If it's appreciation or positive feedback (nice, cool, great, awesome, etc.) → 'appreciation'
 4. If it's a dangerous operation (delete, drop, update, etc.) → 'dangerous'
-5. If it's unclear or vague (hmm, what, etc.) → 'unclear'
-6. If it's asking about data, statistics, or analysis → 'data_query'
+5. If it's unclear, vague, or random words without clear intent → 'unclear'
+6. If it's clearly asking about data, statistics, or analysis with specific questions → 'data_query'
+
+IMPORTANT: Only classify as 'data_query' if the user is clearly asking a specific question about data. Random words, unclear phrases, or vague requests should be classified as 'unclear'.
 
 EXAMPLES:
 - "hi there" → 'greeting'
@@ -404,6 +597,9 @@ EXAMPLES:
 - "great" → 'appreciation'
 - "delete all" → 'dangerous'
 - "hmm" → 'unclear'
+- "random words" → 'unclear'
+- "asdf" → 'unclear'
+- "blah blah" → 'unclear'
 - "how many users" → 'data_query'
 - "how many users ?" → 'data_query'
 - "what's the average age" → 'data_query'
@@ -431,11 +627,16 @@ Return ONLY the intent name, nothing else.`;
       const intent = intentData.choices?.[0]?.message?.content?.trim().toLowerCase();
       
       // Validate intent
-      const validIntents = ['greeting', 'non_data', 'dangerous', 'unclear', 'data_query'];
+      const validIntents = ['greeting', 'non_data', 'appreciation', 'dangerous', 'unclear', 'data_query'];
       if (validIntents.includes(intent)) {
+        console.log('AI classified intent:', intent);
         return intent;
-      }
+          } else {
+      console.log('Invalid intent from AI:', intent);
     }
+  } else {
+    console.error('Intent classification failed:', intentRes.status, await intentRes.text());
+  }
   } catch (error) {
     console.error('Intent classification failed:', error);
   }
@@ -449,7 +650,7 @@ Return ONLY the intent name, nothing else.`;
   }
   
   // Check for non-data responses (exact matches to avoid conflicts)
-  if (['thanks', 'thank you', 'bye', 'goodbye', 'see you', 'help', 'what can you do', 'nothing', 'nope', 'nada'].includes(messageLower)) {
+  if (['thanks', 'thank you', 'bye', 'goodbye', 'see you', 'help', 'what can you do', 'nothing', 'nope', 'nada', 'okay', 'ok', 'alright', 'sure'].includes(messageLower)) {
     return 'non_data';
   }
   
@@ -471,12 +672,25 @@ Return ONLY the intent name, nothing else.`;
     return 'unclear';
   }
   
-  // Check for data-related keywords
-  if (['users', 'data', 'count', 'average', 'show', 'how many', 'what', 'age', 'height', 'weight', 'smoking', 'drinks', 'bmi', 'california', 'occupation', 'education'].some(keyword => messageLower.includes(keyword))) {
+  // Check for data-related keywords - be more strict
+  const dataKeywords = ['users', 'data', 'count', 'average', 'show', 'how many', 'what', 'age', 'height', 'weight', 'smoking', 'drinks', 'bmi', 'california', 'occupation', 'education', 'calculate', 'find', 'get', 'list', 'records', 'database'];
+  const hasDataKeywords = dataKeywords.some(keyword => messageLower.includes(keyword));
+  
+  // Check for question patterns
+  const questionPatterns = ['how many', 'what is', 'what are', 'show me', 'tell me', 'give me', 'find me', 'calculate', 'average', 'count', 'total', 'show all', 'list all'];
+  const hasQuestionPattern = questionPatterns.some(pattern => messageLower.includes(pattern));
+  
+  // Check for simple data requests
+  const simpleDataRequests = ['show all users', 'list users', 'show users', 'all users', 'users in database', 'records in database'];
+  const hasSimpleDataRequest = simpleDataRequests.some(pattern => messageLower.includes(pattern));
+  
+  // Classify as data_query if it has data keywords AND (question patterns OR simple data requests)
+  if (hasDataKeywords && (hasQuestionPattern || hasSimpleDataRequest)) {
     return 'data_query';
   }
   
-  return 'data_query';
+  // If it's just random words without clear intent, classify as unclear
+  return 'unclear';
 }
 
 // Smart SQL query validation function
@@ -503,18 +717,29 @@ function validateSQLQuery(sqlQuery: string): { isValid: boolean; error?: string;
       };
     }
   
-      // Check for non-existent columns
-    const invalidColumns = ['first_name', 'last_name', 'name', 'email', 'phone', 'address', 'salary', 'income', 'esalary'];
-    const foundInvalidColumns = invalidColumns.filter(col => query.includes(col));
-    
-    if (foundInvalidColumns.length > 0) {
-      return {
-        isValid: false,
-        error: `Invalid column(s): ${foundInvalidColumns.join(', ')}`,
-        reason: 'These columns don\'t exist in the database',
-        suggestion: 'Use available columns: age, gender, height, weight, city, country, zip, occupation, education, smoking, drinks_per_week'
-      };
-    }
+        // Check for non-existent columns (but allow BMI calculations)
+  const invalidColumns = ['first_name', 'last_name', 'name', 'email', 'phone', 'address', 'salary', 'income', 'esalary'];
+  const foundInvalidColumns = invalidColumns.filter(col => query.includes(col));
+  
+  // Check for BMI column references (not calculations)
+  const bmiColumnRefs = query.match(/\bbmi\b(?!\s*[=\(])/gi); // BMI not followed by = or (
+  if (bmiColumnRefs && bmiColumnRefs.length > 0) {
+    return {
+      isValid: false,
+      error: `Invalid column reference: ${bmiColumnRefs.join(', ')}`,
+      reason: 'BMI is not a stored column - it must be calculated',
+      suggestion: 'For BMI calculations, use: ROUND(weight / ((height/100.0) * (height/100.0)), 1) AS bmi'
+    };
+  }
+  
+  if (foundInvalidColumns.length > 0) {
+    return {
+      isValid: false,
+      error: `Invalid column(s): ${foundInvalidColumns.join(', ')}`,
+      reason: 'These columns don\'t exist in the database',
+      suggestion: 'Use available columns: age, gender, height, weight, city, country, zip, occupation, education, smoking, drinks_per_week'
+    };
+  }
   
   // Check for proper SQL structure
   if (!query.startsWith('select')) {
@@ -727,7 +952,7 @@ function getEnhancedStaticErrorMessage(errorString: string): string {
 }
 
 // Helper function to format query results with clean, simple format
-function formatQueryResult(rows: Record<string, unknown>[]): string {
+function formatQueryResult(rows: Record<string, unknown>[], startIndex: number = 1): string {
   if (rows.length === 0) return 'No data found.';
   
   // If it's a count query
@@ -738,6 +963,11 @@ function formatQueryResult(rows: Record<string, unknown>[]): string {
   // If it's an average query
   if (rows[0].avg !== undefined) {
     return `Average: ${Number(rows[0].avg).toFixed(2)}`;
+  }
+  
+  // If it's an average_bmi query
+  if (rows[0].average_bmi !== undefined) {
+    return `Average BMI: ${Number(rows[0].average_bmi).toFixed(1)}`;
   }
   
   // If it's a sum query
@@ -761,7 +991,7 @@ function formatQueryResult(rows: Record<string, unknown>[]): string {
     
     // Add each record in a clean format
     rows.forEach((row, index) => {
-      result += `${index + 1}. ${row.gender || 'N/A'}, ${row.age || 'N/A'} years old\n`;
+      result += `${startIndex + index}. ${row.gender || 'N/A'}, ${row.age || 'N/A'} years old\n`;
       result += `   Location: ${row.city || 'N/A'}, ${row.country || 'N/A'}\n`;
       result += `   Job: ${row.occupation || 'N/A'} | Education: ${row.education || 'N/A'}\n`;
       result += `   Height: ${row.height || 'N/A'}cm, Weight: ${row.weight || 'N/A'}kg\n`;
@@ -801,6 +1031,6 @@ function formatQueryResult(rows: Record<string, unknown>[]): string {
     
     return result;
   } else {
-    return `Found ${rows.length} records. Here are the first 10:\n\n${formatQueryResult(rows.slice(0, 10))}`;
+    return `Found ${rows.length} records. Here are the first 10:\n\n${formatQueryResult(rows.slice(0, 10), startIndex)}`;
   }
 }
