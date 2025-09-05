@@ -26,6 +26,14 @@ export async function POST(request: Request) {
       });
     }
 
+    // Check for name-related questions and explain what data is available
+    const namePatterns = /(first name|last name|name|firstname|lastname)/i;
+    if (namePatterns.test(message)) {
+      return NextResponse.json({
+        response: "I don't have first name or last name data in this database. The available user information includes:\n\n• Age, Gender, Height, Weight\n• Location (City, Country, Zip)\n• Occupation, Education\n• Smoking status, Drinks per week\n\nTry asking about these fields instead, like:\n• \"Show me all users by occupation\"\n• \"What's the average age?\"\n• \"How many people are from California?\""
+      });
+    }
+
     // Create a much better prompt for the LLM to generate SQL
     const prompt = `You are a SQL assistant. Convert this user request into a valid SQL query based on the following TABLE users (id, age, gender, height, weight, city, country, zip, occupation, education, smoking, drinks_per_week).
 
@@ -106,13 +114,16 @@ SQL Query:`;
         });
       } else {
         return NextResponse.json({ 
-          response: 'No data found matching your criteria.' 
+          response: 'No data found matching your criteria. Try asking something like:\n\n• "How many users are there?"\n• "Show me all users"\n• "What\'s the average age?"' 
         });
       }
     } catch (sqlError) {
       console.error('SQL execution error:', sqlError);
+      
+      // NEW: Smart error handling with specific messages
+      const errorMessage = getSmartErrorMessage(sqlError, message);
       return NextResponse.json({ 
-        response: 'I encountered an error executing your query. Please try rephrasing your question.' 
+        response: errorMessage
       });
     }
 
@@ -124,28 +135,39 @@ SQL Query:`;
   }
 }
 
-// Helper function to format query results with clean, simple format
-type QueryRow = {
-  count?: number;
-  avg?: number;
-  sum?: number;
-  max?: number;
-  min?: number;
-  age?: number;
-  gender?: string;
-  height?: number;
-  weight?: number;
-  city?: string;
-  country?: string;
-  zip?: string;
-  occupation?: string;
-  education?: string;
-  smoking?: string;
-  drinks_per_week?: number;
-  [key: string]: unknown;
-};
+// NEW: Smart error message function
+function getSmartErrorMessage(error: any, originalQuery: string): string {
+  const errorString = error?.message || error?.toString() || '';
+  
+  // Column doesn't exist errors
+  if (errorString.includes('column') && errorString.includes('does not exist')) {
+    const columnMatch = errorString.match(/column "([^"]+)"/);
+    const columnName = columnMatch ? columnMatch[1] : 'unknown';
+    
+    return `I couldn't find the column "${columnName}" in the database. Available columns are:\n\n• Age, Gender, Height, Weight\n• City, Country, Zip\n• Occupation, Education\n• Smoking, Drinks per week\n\nTry rephrasing your question using these available fields.`;
+  }
+  
+  // Syntax errors
+  if (errorString.includes('syntax error') || errorString.includes('invalid syntax')) {
+    return `I had trouble understanding your question. Try asking something simpler like:\n\n• "How many users are there?"\n• "What's the average age?"\n• "Show me all users from California"`;
+  }
+  
+  // Permission errors
+  if (errorString.includes('permission') || errorString.includes('access')) {
+    return `I don't have permission to access that data. Try asking about user information instead.`;
+  }
+  
+  // Connection errors
+  if (errorString.includes('connection') || errorString.includes('timeout')) {
+    return `I'm having trouble connecting to the database. Please try again in a moment.`;
+  }
+  
+  // Generic fallback with helpful suggestions
+  return `I encountered an error with your query. Try asking something like:\n\n• "How many users are there?"\n• "What's the average age?"\n• "Show me users from California"\n• "How many people smoke?"\n\nOr be more specific about what data you're looking for.`;
+}
 
-function formatQueryResult(rows: QueryRow[], originalQuery: string): string {
+// Helper function to format query results with clean, simple format
+function formatQueryResult(rows: any[], originalQuery: string): string {
   if (rows.length === 0) return 'No data found.';
   
   // If it's a count query
