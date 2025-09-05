@@ -20,7 +20,7 @@ function getBMICategory(bmi: number): string {
 }
 
 // Calculate BMI statistics for a group of users
-function calculateBMIStats(rows: any[]): { validCount: number; avgBMI: number; categories: string[] } {
+function calculateBMIStats(rows: Record<string, unknown>[]): { validCount: number; avgBMI: number; categories: string[] } {
   const validBMIs: number[] = [];
   const categoryCounts: { [key: string]: number } = {};
   
@@ -29,10 +29,10 @@ function calculateBMIStats(rows: any[]): { validCount: number; avgBMI: number; c
     
     if (row.bmi) {
       // BMI was calculated in SQL
-      bmi = parseFloat(row.bmi);
-    } else if (row.height && row.weight && row.height > 0 && row.weight > 0) {
+      bmi = parseFloat(String(row.bmi));
+    } else if (row.height && row.weight && Number(row.height) > 0 && Number(row.weight) > 0) {
       // Calculate BMI from height and weight
-      bmi = calculateBMI(row.height, row.weight);
+      bmi = calculateBMI(Number(row.height), Number(row.weight));
     }
     
     if (bmi > 0) {
@@ -92,7 +92,7 @@ export async function POST(request: Request) {
     const contextPhrases = /^(show them|show me those|display them|display those|show those|show the results|show the data)$/i;
     if (contextPhrases.test(message.trim()) && conversationHistory.length > 0) {
       // Find the last query that returned results
-      const lastQuery = conversationHistory.findLast((msg: any) => 
+      const lastQuery = conversationHistory.findLast((msg: { role: string; content: string }) => 
         msg.role === 'user' && 
         !greetingPatterns.test(msg.content.trim()) && 
         !nonDataPatterns.test(msg.content.trim()) &&
@@ -162,7 +162,7 @@ SQL Query:`;
               const contextResult = await db.execute(contextSqlQuery);
               
               if (contextResult.rows && contextResult.rows.length > 0) {
-                const formattedResult = formatQueryResult(contextResult.rows, lastQuery.content);
+                const formattedResult = formatQueryResult(contextResult.rows);
                 return NextResponse.json({ 
                   response: formattedResult,
                   sqlQuery: contextSqlQuery
@@ -178,7 +178,7 @@ SQL Query:`;
 
     // Create a much better prompt for the LLM to generate SQL
     const conversationContext = conversationHistory.length > 0 
-      ? `\n\nCONVERSATION CONTEXT:\n${conversationHistory.map((msg: any) => `${msg.role}: ${msg.content}`).join('\n')}\n`
+      ? `\n\nCONVERSATION CONTEXT:\n${conversationHistory.map((msg: { role: string; content: string }) => `${msg.role}: ${msg.content}`).join('\n')}\n`
       : '';
 
     const prompt = `You are a SQL assistant with conversation context. Convert this user request into a valid SQL query based on the following TABLE users (id, age, gender, height, weight, city, country, zip, occupation, education, smoking, drinks_per_week).
@@ -227,7 +227,7 @@ SQL Query:`;
 
     // Call Groq API to generate SQL with conversation context
     const messages = [
-      ...conversationHistory.map((msg: any) => ({
+      ...conversationHistory.map((msg: { role: string; content: string }) => ({
         role: msg.role,
         content: msg.content
       })),
@@ -278,7 +278,7 @@ SQL Query:`;
       
       // Format the response
       if (result.rows && result.rows.length > 0) {
-        const formattedResult = formatQueryResult(result.rows, message);
+        const formattedResult = formatQueryResult(result.rows);
         return NextResponse.json({ 
           response: formattedResult,
           sqlQuery: sqlQuery
@@ -292,7 +292,7 @@ SQL Query:`;
       console.error('SQL execution error:', sqlError);
       
       // NEW: Smart error handling with specific messages
-      const errorMessage = getSmartErrorMessage(sqlError, message);
+      const errorMessage = getSmartErrorMessage(sqlError);
       return NextResponse.json({ 
         response: errorMessage
       });
@@ -307,8 +307,8 @@ SQL Query:`;
 }
 
 // NEW: Smart error message function
-function getSmartErrorMessage(error: any, originalQuery: string): string {
-  const errorString = error?.message || error?.toString() || '';
+function getSmartErrorMessage(error: unknown): string {
+  const errorString = (error as Error)?.message || String(error) || '';
   
   // Column doesn't exist errors
   if (errorString.includes('column') && errorString.includes('does not exist')) {
@@ -338,7 +338,7 @@ function getSmartErrorMessage(error: any, originalQuery: string): string {
 }
 
 // Helper function to format query results with clean, simple format
-function formatQueryResult(rows: any[], originalQuery: string): string {
+function formatQueryResult(rows: Record<string, unknown>[]): string {
   if (rows.length === 0) return 'No data found.';
   
   // If it's a count query
@@ -348,7 +348,7 @@ function formatQueryResult(rows: any[], originalQuery: string): string {
   
   // If it's an average query
   if (rows[0].avg !== undefined) {
-    return `Average: ${rows[0].avg.toFixed(2)}`;
+    return `Average: ${Number(rows[0].avg).toFixed(2)}`;
   }
   
   // If it's a sum query
@@ -378,13 +378,13 @@ function formatQueryResult(rows: any[], originalQuery: string): string {
       result += `   Height: ${row.height || 'N/A'}cm, Weight: ${row.weight || 'N/A'}kg\n`;
       
       // Add BMI if we have height and weight data
-      if (row.height && row.weight && row.height > 0 && row.weight > 0) {
-        const bmi = calculateBMI(row.height, row.weight);
+      if (row.height && row.weight && Number(row.height) > 0 && Number(row.weight) > 0) {
+        const bmi = calculateBMI(Number(row.height), Number(row.weight));
         const bmiCategory = getBMICategory(bmi);
         result += `   BMI: ${bmi.toFixed(1)} (${bmiCategory})\n`;
       } else if (row.bmi) {
         // If BMI was calculated in SQL
-        const bmiCategory = getBMICategory(row.bmi);
+        const bmiCategory = getBMICategory(Number(row.bmi));
         result += `   BMI: ${row.bmi} (${bmiCategory})\n`;
       }
       
@@ -392,7 +392,7 @@ function formatQueryResult(rows: any[], originalQuery: string): string {
     });
     
     // Add summary stats
-    const avgAge = (rows.reduce((sum, row) => sum + (row.age || 0), 0) / rows.length).toFixed(1);
+    const avgAge = (rows.reduce((sum, row) => sum + (Number(row.age) || 0), 0) / rows.length).toFixed(1);
     const maleCount = rows.filter(row => row.gender === 'Male').length;
     const femaleCount = rows.filter(row => row.gender === 'Female').length;
     const smokers = rows.filter(row => row.smoking === 'Yes').length;
@@ -412,6 +412,6 @@ function formatQueryResult(rows: any[], originalQuery: string): string {
     
     return result;
   } else {
-    return `Found ${rows.length} records. Here are the first 10:\n\n${formatQueryResult(rows.slice(0, 10), originalQuery)}`;
+    return `Found ${rows.length} records. Here are the first 10:\n\n${formatQueryResult(rows.slice(0, 10))}`;
   }
 }
