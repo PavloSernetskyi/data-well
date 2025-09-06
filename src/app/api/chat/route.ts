@@ -1,14 +1,6 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 
-// BMI calculation function
-function calculateBMI(heightCm: number, weightKg: number): number {
-  if (!heightCm || !weightKg || heightCm <= 0 || weightKg <= 0) {
-    return 0;
-  }
-  const heightM = heightCm / 100;
-  return weightKg / (heightM * heightM);
-}
 
 // BMI category classification
 function getBMICategory(bmi: number): string {
@@ -19,41 +11,6 @@ function getBMICategory(bmi: number): string {
   return 'Obese';
 }
 
-// Calculate BMI statistics for a group of users
-function calculateBMIStats(rows: Record<string, unknown>[]): { validCount: number; avgBMI: number; categories: string[] } {
-  const validBMIs: number[] = [];
-  const categoryCounts: { [key: string]: number } = {};
-  
-  rows.forEach(row => {
-    let bmi = 0;
-    
-    if (row.bmi) {
-      bmi = typeof row.bmi === 'number' ? row.bmi : parseFloat(String(row.bmi));
-    } else if (row.height && row.weight) {
-      const height = typeof row.height === 'number' ? row.height : parseFloat(String(row.height));
-      const weight = typeof row.weight === 'number' ? row.weight : parseFloat(String(row.weight));
-      bmi = calculateBMI(height, weight);
-    }
-    
-    if (bmi > 0) {
-      validBMIs.push(bmi);
-      const category = getBMICategory(bmi);
-      categoryCounts[category] = (categoryCounts[category] || 0) + 1;
-    }
-  });
-  
-  const avgBMI = validBMIs.length > 0 ? validBMIs.reduce((sum, bmi) => sum + bmi, 0) / validBMIs.length : 0;
-  const categories = Object.entries(categoryCounts)
-    .sort(([,a], [,b]) => b - a)
-    .map(([category, count]) => `${category}: ${count}`)
-    .join(', ');
-  
-  return {
-    validCount: validBMIs.length,
-    avgBMI: Math.round(avgBMI * 10) / 10,
-    categories: categories ? [categories] : []
-  };
-}
 
 export async function POST(request: Request) {
   try {
@@ -72,7 +29,6 @@ export async function POST(request: Request) {
     const followUpPhrases = /(show them|list them|display them|show these|list these|can you show|can you list|show users who|list users who|show the smokers|show the users|show the people|list the people|show the data|list the data|show me those|display those|show those|show the results|show the data)/i;
     const simpleFollowUp = /^(show|list|display)$/i;
     const paginationPhrases = /(show me more|show more|next page|next 10|from \d+ to \d+|users \d+-\d+|from \d+-\d+|users with bmi from \d+-\d+)/i;
-    const filterPhrases = /(how many of them|how many of those|what about them|what about those|show me the|show the|filter by|sort by)/i;
     
     // PHASE 2: SIMPLIFIED CONTEXT AWARENESS - Direct conversation analysis
     console.log('=== DEBUGGING CONTEXT AWARENESS ===');
@@ -186,7 +142,7 @@ export async function POST(request: Request) {
     }
 
     // DYNAMIC INTENT RECOGNITION: Use AI to classify user intent
-    const userIntent = await classifyUserIntent(message, conversationHistory);
+    const userIntent = await classifyUserIntent(message);
     console.log('Detected intent:', userIntent);
     
     // Handle different intents dynamically
@@ -500,7 +456,7 @@ export async function POST(request: Request) {
 }
 
 // DYNAMIC INTENT RECOGNITION: AI-powered intent classification
-async function classifyUserIntent(message: string, conversationHistory: Array<{ role: string; content: string }>): Promise<string> {
+async function classifyUserIntent(message: string): Promise<string> {
   try {
     const groqResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
